@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">onsen-app</string>
+    <string name="title_activity_main">onsen-app</string>
+    <string name="package_name">com.example.onsenapp</string>
+    <string name="custom_url_scheme">com.example.onsenapp</string>
+</resources>

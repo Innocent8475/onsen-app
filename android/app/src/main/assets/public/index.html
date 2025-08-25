@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Capacitor Demo</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; text-align: center; }
+    button { margin: 10px; padding: 10px 20px; font-size: 16px; }
+    img { margin-top: 20px; max-width: 90%; border: 2px solid #333; border-radius: 8px; }
+    audio { margin-top: 20px; width: 100%; }
+    #micLog { margin-top: 10px; color: green; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h2>📷 Camera + 💾 Storage + 🎤 Mic</h2>
+
+  <div>
+    <button id="btnCamera">Take Photo</button>
+    <button id="btnSave">Save Photo</button>
+  </div>
+  <img id="preview" alt="Preview will appear here" />
+
+  <div>
+    <button id="btnMicStart">Start Recording</button>
+    <button id="btnMicStop">Stop Recording</button>
+    <div id="micLog"></div>
+    <audio id="player" controls></audio>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
