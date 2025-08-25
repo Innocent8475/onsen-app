@@ -8,31 +8,11 @@ workflows:
     scripts:
       - name: Install dependencies
         script: npm install
-      - name: Add Capacitor Android platform
-        script: |
-          if [ ! -d "android" ]; then
-            npx cap add android
-          else
-            echo "Android platform already exists"
-          fi
       - name: Sync Capacitor
         script: npx cap sync android
-      - name: Clean Android build
-        script: |
-          cd android
-          ./gradlew clean
-          cd ..
-      - name: Build Android APK
+      - name: Build Android
         script: |
           cd android
           ./gradlew assembleDebug
-          cd ..
     artifacts:
-      - android/app/build/outputs/apk/**/*.apk
-    publishing:
-      email:
-        recipients:
-          - innocentiliya83@gmail.com
-        notify:
-          success: true
-          failure: false
+      - android/app/build/outputs/**/*.apk
