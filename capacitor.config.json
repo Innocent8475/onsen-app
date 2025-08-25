@@ -1,0 +1,6 @@
+{
+  "appId": "com.example.onsenapp",
+  "appName": "onsen-app",
+  "webDir": "www",
+  "bundledWebRuntime": false
+}

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Device APIs Demo</title>
+
+  <!-- Onsen UI (paths are from /www to project root node_modules) -->
+  <link rel="stylesheet" href="../node_modules/onsenui/css/onsenui.css">
+  <link rel="stylesheet" href="../node_modules/onsenui/css/onsen-css-components.min.css">
+  <script src="../node_modules/onsenui/js/onsenui.min.js"></script>
+
+  <style>
+    .wrap { padding: 16px; }
+    #preview { max-width: 100%; margin-top: 12px; border-radius: 8px; }
+    .log { font-family: monospace; background:#f6f6f6; padding:8px; border-radius:8px; word-break:break-all; }
+  </style>
+</head>
+<body>
+  <ons-page>
+    <ons-toolbar><div class="center">Onsen + Capacitor: Camera • Storage • Mic</div></ons-toolbar>
+
+    <div class="wrap">
+      <ons-card>
+        <div class="title">Camera</div>
+        <div class="content">
+          <ons-button id="btnCamera" modifier="large">Take Photo</ons-button>
+          <img id="preview" alt="photo preview" />
+        </div>
+      </ons-card>
+
+      <ons-card>
+        <div class="title">Storage</div>
+        <div class="content">
+          <ons-button id="btnWrite" modifier="quiet">Write file</ons-button>
+          <ons-button id="btnRead" modifier="quiet">Read file</ons-button>
+          <div id="storageLog" class="log"></div>
+        </div>
+      </ons-card>
+
+      <ons-card>
+        <div class="title">Microphone</div>
+        <div class="content">
+          <ons-button id="btnMicStart" modifier="cta">Start Recording</ons-button>
+          <ons-button id="btnMicStop" modifier="destructive">Stop</ons-button>
+          <div id="micLog" class="log"></div>
+          <!-- On Android/iOS we'll try to play by URI; on Web it'll play a Blob -->
+          <audio id="player" controls style="width:100%; margin-top:8px;"></audio>
+        </div>
+      </ons-card>
+    </div>
+  </ons-page>
+
+  <script src="js/main.js"></script>
+</body>
+</html>
