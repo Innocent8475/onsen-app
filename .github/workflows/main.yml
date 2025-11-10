@@ -58,6 +58,11 @@ jobs:
       - name: Build minimal rootfs with debootstrap
         run: |
           sudo debootstrap --arch=amd64 jammy rootfs http://archive.ubuntu.com/ubuntu/
+          
+          # Enable universe repository
+          echo "deb http://archive.ubuntu.com/ubuntu jammy universe" | sudo tee -a rootfs/etc/apt/sources.list
+          echo "deb http://archive.ubuntu.com/ubuntu jammy-updates universe" | sudo tee -a rootfs/etc/apt/sources.list
+          
           sudo chroot rootfs /bin/bash -c "
             apt update &&
             apt install -y systemd libwebkit2gtk-4.1-0 libgtk-3-0 xorg xinit gcc pkg-config libwebkit2gtk-4.1-dev
