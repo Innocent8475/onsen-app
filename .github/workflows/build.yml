@@ -1,4 +1,4 @@
-name: Build Phantom OS ISO (Placeholder UI)
+name: Build Phantom OS ISO (Custom Kernel + WebKit)
 
 on:
   workflow_dispatch:
@@ -19,10 +19,10 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y \
-            build-essential libncurses-dev bison flex libssl-dev \
+            build-essential libncurses-dev bison flex libssl-dev libelf-dev \
             wget git xorriso grub-pc-bin grub-efi-amd64-bin mtools \
-            debootstrap squashfs-tools cpio \
-            webkit2gtk-4.1-dev x11-utils xinit nano gcc
+            debootstrap squashfs-tools cpio gzip \
+            webkit2gtk-4.1-dev libgtk-3-dev gcc pkg-config
 
       - name: Download Linux kernel
         run: |
@@ -30,29 +30,37 @@ jobs:
           wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${KERNEL_VERSION}.tar.xz
           tar xf linux-${KERNEL_VERSION}.tar.xz -C kernel-src --strip-components=1
 
-      - name: Compile kernel
+      - name: Configure and compile kernel
         run: |
           cd kernel-src
           make defconfig
+          scripts/config --enable CONFIG_FB
+          scripts/config --enable CONFIG_FRAMEBUFFER_CONSOLE
+          scripts/config --enable CONFIG_DRM
+          scripts/config --enable CONFIG_DRM_FBDEV_EMULATION
           scripts/config --enable CONFIG_WIRELESS
           scripts/config --enable CONFIG_CFG80211
+          scripts/config --enable CONFIG_MAC80211
           make -j$(nproc)
+
+      - name: Install kernel modules
+        run: |
+          cd kernel-src
+          mkdir -p ../rootfs
           make modules_install INSTALL_MOD_PATH=../rootfs
 
-      - name: Build root filesystem
+      - name: Build minimal rootfs with debootstrap
         run: |
           sudo debootstrap --arch=amd64 jammy rootfs http://archive.ubuntu.com/ubuntu/
           sudo chroot rootfs /bin/bash -c "
-            useradd -m phantom && echo 'phantom:phantom' | chpasswd &&
-            echo 'root:phantom' | chpasswd &&
             apt update &&
-            apt install -y net-tools iproute2 wireless-tools wpasupplicant sudo bash nano webkit2gtk-4.1 x11-utils xinit
+            apt install -y systemd webkit2gtk-4.1 libgtk-3-0 xorg xinit gcc pkg-config libwebkit2gtk-4.1-dev
           "
 
-      - name: Create placeholder Phantom shell
+      - name: Create WebKit launcher
         run: |
-          mkdir -p rootfs/usr/local/bin
-          cat > rootfs/usr/local/bin/phantom-shell.c << 'ENDC'
+          sudo mkdir -p rootfs/usr/local/bin
+          sudo tee rootfs/usr/local/bin/phantom-shell.c > /dev/null << 'EOF'
           #include <gtk/gtk.h>
           #include <webkit2/webkit2.h>
 
@@ -72,89 +80,112 @@ jobs:
               gtk_main();
               return 0;
           }
-          ENDC
-          cd rootfs/usr/local/bin
-          gcc phantom-shell.c -o phantom-shell `pkg-config --cflags --libs webkit2gtk-4.1`
-          chmod +x phantom-shell
-          rm phantom-shell.c
+          EOF
 
-      - name: Create placeholder UI
+          sudo chroot rootfs /bin/bash -c "
+            cd /usr/local/bin &&
+            gcc phantom-shell.c -o phantom-shell \$(pkg-config --cflags --libs webkit2gtk-4.1 gtk+-3.0) &&
+            chmod +x phantom-shell &&
+            rm phantom-shell.c
+          "
+
+      - name: Create blank HTML page
         run: |
-          mkdir -p rootfs/usr/share/phantom-ui
-          cat > rootfs/usr/share/phantom-ui/index.html << 'ENDUI'
+          sudo mkdir -p rootfs/usr/share/phantom-ui
+          sudo tee rootfs/usr/share/phantom-ui/index.html > /dev/null << 'EOF'
           <!DOCTYPE html>
           <html>
           <head>
             <meta charset="UTF-8">
-            <title>Phantom OS UI Placeholder</title>
+            <title>Phantom OS</title>
             <style>
-              body { background:#111; color:#0f0; font-family:sans-serif; display:flex; justify-content:center; align-items:center; height:100vh; margin:0; }
-              h1 { font-size:3em; }
+              body { 
+                background: #000; 
+                color: #0f0; 
+                font-family: monospace; 
+                display: flex; 
+                justify-content: center; 
+                align-items: center; 
+                height: 100vh; 
+                margin: 0; 
+              }
+              h1 { font-size: 3em; }
             </style>
           </head>
           <body>
-            <h1>This is your UI!</h1>
+            <h1>Phantom OS - Custom Kernel</h1>
           </body>
           </html>
-          ENDUI
+          EOF
 
-      - name: Add systemd service for Phantom shell
+      - name: Create systemd service
         run: |
-          sudo tee rootfs/etc/systemd/system/phantom.service > /dev/null << 'ENDSERVICE'
+          sudo tee rootfs/etc/systemd/system/phantom.service > /dev/null << 'EOF'
           [Unit]
-          Description=Phantom Shell
-          After=network.target
+          Description=Phantom WebKit Shell
+          After=graphical.target
 
           [Service]
           ExecStart=/usr/local/bin/phantom-shell
           Restart=always
-          User=phantom
+          Environment=DISPLAY=:0
 
           [Install]
-          WantedBy=default.target
-          ENDSERVICE
+          WantedBy=graphical.target
+          EOF
+
           sudo chroot rootfs systemctl enable phantom.service
 
       - name: Build initramfs
         run: |
-          mkdir -p initramfs/{bin,sbin,etc,proc,sys,newroot}
-          cp /bin/busybox initramfs/bin/
-          ln -s bin/busybox initramfs/bin/sh
-          cat > initramfs/init << 'ENDINIT'
+          mkdir -p initramfs/{bin,sbin,etc,proc,sys,dev,newroot}
+          wget https://www.busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl/busybox -O initramfs/bin/busybox
+          chmod +x initramfs/bin/busybox
+          cd initramfs/bin
+          for cmd in sh mount umount switch_root; do
+            ln -s busybox $cmd
+          done
+          cd ../..
+          
+          cat > initramfs/init << 'EOF'
           #!/bin/sh
-          mount -t proc proc /proc
-          mount -t sysfs sys /sys
-          mount -t devtmpfs dev /dev
-          mount -o rw /dev/sr0 /newroot || mount -o rw /dev/loop0 /newroot
+          mount -t proc none /proc
+          mount -t sysfs none /sys
+          mount -t devtmpfs none /dev
+          
+          mount -t iso9660 /dev/sr0 /newroot 2>/dev/null || mount -t squashfs /dev/loop0 /newroot
+          
           exec switch_root /newroot /sbin/init
-          ENDINIT
+          EOF
+          
           chmod +x initramfs/init
           cd initramfs
-          find . | cpio -H newc -o | gzip > ../initramfs.gz
+          find . | cpio -H newc -o | gzip > ../initramfs.cpio.gz
+
+      - name: Build squashfs from rootfs
+        run: |
+          sudo mksquashfs rootfs filesystem.squashfs -comp xz -e boot
 
       - name: Prepare ISO structure
         run: |
           mkdir -p iso/boot/grub
           cp kernel-src/arch/x86/boot/bzImage iso/boot/vmlinuz
-          cp initramfs.gz iso/boot/initramfs.gz
-          sudo mksquashfs rootfs iso/casper/filesystem.squashfs -e boot
+          cp initramfs.cpio.gz iso/boot/initramfs.gz
+          cp filesystem.squashfs iso/boot/filesystem.squashfs
 
-          cat > iso/boot/grub/grub.cfg << 'ENDGRUB'
+          cat > iso/boot/grub/grub.cfg << 'EOF'
           set default=0
           set timeout=5
 
-          menuentry "Phantom OS UI" {
-              linux /boot/vmlinuz
+          menuentry "Phantom OS (Custom Kernel)" {
+              linux /boot/vmlinuz quiet splash
               initrd /boot/initramfs.gz
           }
-          ENDGRUB
+          EOF
 
       - name: Build ISO
         run: |
-          xorriso -as mkisofs \
-            -r -J -l -b boot/grub/i386-pc/eltorito.img \
-            -no-emul-boot -boot-load-size 4 -boot-info-table \
-            -o ${ISO_NAME} iso/
+          grub-mkrescue -o ${ISO_NAME} iso/
 
       - name: Upload ISO
         uses: actions/upload-artifact@v4
