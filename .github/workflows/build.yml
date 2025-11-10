@@ -1,0 +1,163 @@
+name: Build Phantom OS ISO (Placeholder UI)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-iso:
+    runs-on: ubuntu-latest
+
+    env:
+      KERNEL_VERSION: 6.6.11
+      ISO_NAME: Phantom-OS.iso
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            build-essential libncurses-dev bison flex libssl-dev \
+            wget git xorriso grub-pc-bin grub-efi-amd64-bin mtools \
+            debootstrap squashfs-tools cpio \
+            webkit2gtk-4.1-dev x11-utils xinit nano gcc
+
+      - name: Download Linux kernel
+        run: |
+          mkdir -p kernel-src
+          wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${KERNEL_VERSION}.tar.xz
+          tar xf linux-${KERNEL_VERSION}.tar.xz -C kernel-src --strip-components=1
+
+      - name: Compile kernel
+        run: |
+          cd kernel-src
+          make defconfig
+          scripts/config --enable CONFIG_WIRELESS
+          scripts/config --enable CONFIG_CFG80211
+          make -j$(nproc)
+          make modules_install INSTALL_MOD_PATH=../rootfs
+
+      - name: Build root filesystem
+        run: |
+          sudo debootstrap --arch=amd64 jammy rootfs http://archive.ubuntu.com/ubuntu/
+          sudo chroot rootfs /bin/bash -c "
+            useradd -m phantom && echo 'phantom:phantom' | chpasswd &&
+            echo 'root:phantom' | chpasswd &&
+            apt update &&
+            apt install -y net-tools iproute2 wireless-tools wpasupplicant sudo bash nano webkit2gtk-4.1 x11-utils xinit
+          "
+
+      - name: Create placeholder Phantom shell
+        run: |
+          mkdir -p rootfs/usr/local/bin
+          cat > rootfs/usr/local/bin/phantom-shell.c <<'ENDC'
+#include <gtk/gtk.h>
+#include <webkit2/webkit2.h>
+
+int main(int argc, char *argv[]) {
+    gtk_init(&argc, &argv);
+
+    GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_window_set_default_size(GTK_WINDOW(window), 1024, 768);
+    gtk_window_fullscreen(GTK_WINDOW(window));
+
+    WebKitWebView *view = WEBKIT_WEB_VIEW(webkit_web_view_new());
+    webkit_web_view_load_uri(view, "file:///usr/share/phantom-ui/index.html");
+
+    gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(view));
+    g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
+    gtk_widget_show_all(window);
+    gtk_main();
+    return 0;
+}
+ENDC
+          cd rootfs/usr/local/bin
+          gcc phantom-shell.c -o phantom-shell `pkg-config --cflags --libs webkit2gtk-4.1`
+          chmod +x phantom-shell
+          rm phantom-shell.c
+
+      - name: Create placeholder UI
+        run: |
+          mkdir -p rootfs/usr/share/phantom-ui
+          cat > rootfs/usr/share/phantom-ui/index.html <<'ENDUI'
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Phantom OS UI Placeholder</title>
+  <style>
+    body { background:#111; color:#0f0; font-family:sans-serif; display:flex; justify-content:center; align-items:center; height:100vh; margin:0; }
+    h1 { font-size:3em; }
+  </style>
+</head>
+<body>
+  <h1>This is your UI!</h1>
+</body>
+</html>
+ENDUI
+
+      - name: Add systemd service for Phantom shell
+        run: |
+          sudo tee rootfs/etc/systemd/system/phantom.service > /dev/null <<'ENDSERVICE'
+[Unit]
+Description=Phantom Shell
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/phantom-shell
+Restart=always
+User=phantom
+
+[Install]
+WantedBy=default.target
+ENDSERVICE
+          sudo chroot rootfs systemctl enable phantom.service
+
+      - name: Build initramfs
+        run: |
+          mkdir -p initramfs/{bin,sbin,etc,proc,sys,newroot}
+          cp /bin/busybox initramfs/bin/
+          ln -s bin/busybox initramfs/bin/sh
+          cat > initramfs/init <<'ENDINIT'
+#!/bin/sh
+mount -t proc proc /proc
+mount -t sysfs sys /sys
+mount -t devtmpfs dev /dev
+mount -o rw /dev/sr0 /newroot || mount -o rw /dev/loop0 /newroot
+exec switch_root /newroot /sbin/init
+ENDINIT
+          chmod +x initramfs/init
+          cd initramfs
+          find . | cpio -H newc -o | gzip > ../initramfs.gz
+
+      - name: Prepare ISO structure
+        run: |
+          mkdir -p iso/boot/grub
+          cp kernel-src/arch/x86/boot/bzImage iso/boot/vmlinuz
+          cp initramfs.gz iso/boot/initramfs.gz
+          sudo mksquashfs rootfs iso/casper/filesystem.squashfs -e boot
+
+          cat > iso/boot/grub/grub.cfg <<'ENDGRUB'
+set default=0
+set timeout=5
+
+menuentry "Phantom OS UI" {
+    linux /boot/vmlinuz
+    initrd /boot/initramfs.gz
+}
+ENDGRUB
+
+      - name: Build ISO
+        run: |
+          xorriso -as mkisofs \
+            -r -J -l -b boot/grub/i386-pc/eltorito.img \
+            -no-emul-boot -boot-load-size 4 -boot-info-table \
+            -o ${ISO_NAME} iso/
+
+      - name: Upload ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: Phantom-OS
+          path: ${ISO_NAME}
